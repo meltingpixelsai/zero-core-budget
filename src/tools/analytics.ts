@@ -116,10 +116,12 @@ export async function getSpendingReport(input: SpendingReportInput): Promise<Spe
   // Generate recommendations
   const recommendations: string[] = [];
 
-  // Flag low-ROI services
-  for (const svc of topServices) {
+  // Flag low-ROI services. service_id is caller-supplied stored text, so the
+  // advice points at the top_services entry (where service_id is returned as
+  // data) instead of interpolating that text into this server-authored prose.
+  for (const [index, svc] of topServices.entries()) {
     if (svc.count >= 3 && svc.success_rate < 50) {
-      recommendations.push(`Consider replacing ${svc.service_id} - only ${svc.success_rate}% success rate over ${svc.count} calls`);
+      recommendations.push(`Consider replacing the service at top_services[${index}] - only ${svc.success_rate}% success rate over ${svc.count} calls`);
     }
   }
 
