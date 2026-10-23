@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase-client.js";
 import { randomUUID } from "crypto";
 
@@ -17,13 +18,17 @@ interface ReportSpendResult {
   remaining_weekly: number;
 }
 
-/** Record a spend and return remaining budget */
-export async function reportSpend(input: ReportSpendInput): Promise<ReportSpendResult> {
-  const sb = getSupabase();
+/** Record a spend for `ownerWallet`'s agent and return its remaining budget */
+export async function reportSpend(
+  input: ReportSpendInput,
+  ownerWallet: string,
+  sb: SupabaseClient = getSupabase()
+): Promise<ReportSpendResult> {
   const reportId = `spd_${randomUUID().slice(0, 12)}`;
 
   // Insert spending record
   const { error } = await sb.from("spending_history").insert({
+    owner_wallet: ownerWallet,
     agent_id: input.agent_id,
     service_id: input.service_id,
     amount_usd: input.amount_usd,
@@ -38,6 +43,7 @@ export async function reportSpend(input: ReportSpendInput): Promise<ReportSpendR
   const { data: budget } = await sb
     .from("agent_budgets")
     .select("daily_limit_usd, weekly_limit_usd")
+    .eq("owner_wallet", ownerWallet)
     .eq("agent_id", input.agent_id)
     .single();
 
@@ -52,11 +58,13 @@ export async function reportSpend(input: ReportSpendInput): Promise<ReportSpendR
     sb
       .from("spending_history")
       .select("amount_usd")
+      .eq("owner_wallet", ownerWallet)
       .eq("agent_id", input.agent_id)
       .gte("created_at", todayStart.toISOString()),
     sb
       .from("spending_history")
       .select("amount_usd")
+      .eq("owner_wallet", ownerWallet)
       .eq("agent_id", input.agent_id)
       .gte("created_at", weekStart.toISOString()),
   ]);

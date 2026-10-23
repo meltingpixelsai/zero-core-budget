@@ -47,11 +47,12 @@
       "currency": "USDC",
       "facilitator": "https://facilitator.payai.network",
       "tools": {
+        "register_agent": "$0.001",
         "check_spend": "$0.001",
         "report_spend": "$0.001",
         "get_spending_report": "$0.005"
       },
-      "free_tools": ["list_tools", "health", "register_agent"]
+      "free_tools": ["list_tools", "health"]
     }
   }
 }
