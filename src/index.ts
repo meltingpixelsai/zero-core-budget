@@ -10,6 +10,7 @@ import { registerAgent } from "./tools/registration.js";
 import { checkSpend } from "./tools/budget-check.js";
 import { reportSpend } from "./tools/spending.js";
 import { getSpendingReport } from "./tools/analytics.js";
+import { createSettleFirstPaidTools, type SettleFirstConfig } from "./lib/x402-settle-first.js";
 
 // ── Shared tool callback helpers ─────────────────────────────
 
@@ -106,11 +107,29 @@ function registerFreeTools(server: any): void {
 
 // ── x402 Paid Handler ────────────────────────────────────────
 
+const x402Config: SettleFirstConfig = {
+  facilitator: {
+    url: config.payment.facilitator as `${string}://${string}`,
+  },
+  recipient: {
+    svm: {
+      address: config.payment.wallet,
+      isTestnet: false,
+    },
+  },
+};
+
+// Paid tools take the payment (claim once, verify, settle) before they run.
+// mcpay's own paidTool runs the tool first and settles after, which gives
+// unsettled payments the tool for free. See src/lib/x402-settle-first.ts.
+const settleFirst = createSettleFirstPaidTools(x402Config);
+
 const paidHandler = createMcpPaidHandler(
   (server) => {
     registerFreeTools(server);
+    const paidTool = settleFirst(server);
 
-    server.paidTool(
+    paidTool(
       "check_spend",
       "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from historical data, and suggests cheaper alternatives. Call this BEFORE paying for any service.",
       "$0.001",
@@ -135,7 +154,7 @@ const paidHandler = createMcpPaidHandler(
       }
     );
 
-    server.paidTool(
+    paidTool(
       "report_spend",
       "Record a completed spend with optional outcome tracking. Call this AFTER paying for a service to track spending and build ROI history.",
       "$0.001",
@@ -164,7 +183,7 @@ const paidHandler = createMcpPaidHandler(
       }
     );
 
-    server.paidTool(
+    paidTool(
       "get_spending_report",
       "Detailed spending analytics report. Returns total spent, category breakdown, top services with ROI, and optimization recommendations. Use to understand spending patterns and find inefficiencies.",
       "$0.005",
@@ -182,17 +201,7 @@ const paidHandler = createMcpPaidHandler(
       }
     );
   },
-  {
-    facilitator: {
-      url: config.payment.facilitator as `${string}://${string}`,
-    },
-    recipient: {
-      svm: {
-        address: config.payment.wallet,
-        isTestnet: false,
-      },
-    },
-  },
+  x402Config,
   {
     serverInfo: { name: "harvey-budget", version: "1.0.0" },
   },
