@@ -10,6 +10,7 @@ import { registerAgent } from "./tools/registration.js";
 import { checkSpend } from "./tools/budget-check.js";
 import { reportSpend } from "./tools/spending.js";
 import { getSpendingReport } from "./tools/analytics.js";
+import { createSettleFirstPaidTools, type SettleFirstConfig } from "./lib/x402-settle-first.js";
 
 // ── Shared tool callback helpers ─────────────────────────────
 
@@ -106,11 +107,29 @@ function registerFreeTools(server: any): void {
 
 // ── x402 Paid Handler ────────────────────────────────────────
 
+const x402Config: SettleFirstConfig = {
+  facilitator: {
+    url: config.payment.facilitator as `${string}://${string}`,
+  },
+  recipient: {
+    svm: {
+      address: config.payment.wallet,
+      isTestnet: false,
+    },
+  },
+};
+
+// Paid tools take the payment (claim once, verify, settle) before they run.
+// mcpay's own paidTool runs the tool first and settles after, which gives
+// unsettled payments the tool for free. See src/lib/x402-settle-first.ts.
+const settleFirst = createSettleFirstPaidTools(x402Config);
+
 const paidHandler = createMcpPaidHandler(
   (server) => {
     registerFreeTools(server);
+    const paidTool = settleFirst(server);
 
-    server.paidTool(
+    paidTool(
       "check_spend",
       "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from historical data, and suggests cheaper alternatives. Call this BEFORE paying for any service.",
       "$0.001",
@@ -135,7 +154,7 @@ const paidHandler = createMcpPaidHandler(
       }
     );
 
-    server.paidTool(
+    paidTool(
       "report_spend",
       "Record a completed spend with optional outcome tracking. Call this AFTER paying for a service to track spending and build ROI history.",
       "$0.001",
@@ -164,7 +183,7 @@ const paidHandler = createMcpPaidHandler(
       }
     );
 
-    server.paidTool(
+    paidTool(
       "get_spending_report",
       "Detailed spending analytics report. Returns total spent, category breakdown, top services with ROI, and optimization recommendations. Use to understand spending patterns and find inefficiencies.",
       "$0.005",
@@ -182,27 +201,26 @@ const paidHandler = createMcpPaidHandler(
       }
     );
   },
-  {
-    facilitator: {
-      url: config.payment.facilitator as `${string}://${string}`,
-    },
-    recipient: {
-      svm: {
-        address: config.payment.wallet,
-        isTestnet: false,
-      },
-    },
-  },
+  x402Config,
   {
     serverInfo: { name: "harvey-budget", version: "1.0.0" },
   },
   {
     maxDuration: 300,
     verboseLogs: process.env.NODE_ENV !== "production",
+    // No Redis here: without this, an anonymous GET /sse or POST /message
+    // throws "redisUrl is required" in an unawaited promise and kills the process.
+    disableSse: true,
   }
 );
 
 // ── Hono HTTP Server ─────────────────────────────────────────
+
+// A rejected promise inside the MCP transport must not stop the process and every
+// in-flight call with it (a paid call cut off after settlement is charged).
+process.on("unhandledRejection", (reason) => {
+  console.error("[mcp] unhandled rejection, process kept alive:", reason);
+});
 
 const app = new Hono();
 
@@ -218,7 +236,16 @@ app.get("/", (c) => c.html(landingHtml()));
 app.get("/dev", (c) => c.html(devHtml()));
 
 // MCP handler - x402 only
+// mcp-handler parses POST bodies outside a try, so a malformed body would reject
+// unhandled and stop the process. Answer it with a JSON-RPC parse error instead.
 app.all("*", async (c) => {
+  if (c.req.method === "POST") {
+    try {
+      JSON.parse(await c.req.raw.clone().text());
+    } catch {
+      return c.json({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }, 400);
+    }
+  }
   return paidHandler(c.req.raw);
 });
 
