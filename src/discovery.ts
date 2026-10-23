@@ -41,10 +41,10 @@ const LLMS_TXT = `# Harvey Budget - Agent Spending Management MCP Server
 > Pure logic - no LLM dependency. Pay per call with USDC via x402 micropayments. No account needed.
 > Built by MeltingPixels.
 
-## Tools (6 total, 3 free + 3 paid)
+## Tools (6 total, 2 free + 4 paid)
 - [list_tools](https://budget.rugslayer.com/mcp): List all tools with pricing (FREE)
 - [health](https://budget.rugslayer.com/mcp): Server status and payment config (FREE)
-- [register_agent](https://budget.rugslayer.com/mcp): Register agent with budget limits (FREE)
+- [register_agent](https://budget.rugslayer.com/mcp): Register agent with budget limits ($0.001; the agent_id belongs to the paying wallet)
 - [check_spend](https://budget.rugslayer.com/mcp): Check if a spend is within budget ($0.001)
 - [report_spend](https://budget.rugslayer.com/mcp): Record a spend with outcome ($0.001)
 - [get_spending_report](https://budget.rugslayer.com/mcp): Spending analytics with ROI and recommendations ($0.005)
@@ -55,9 +55,10 @@ const LLMS_TXT = `# Harvey Budget - Agent Spending Management MCP Server
 - [Claude Code](https://budget.rugslayer.com/mcp): claude mcp add harvey-budget --transport http https://budget.rugslayer.com/mcp
 
 ## Authentication
-- [x402 USDC](https://budget.rugslayer.com/mcp): Pay per call on Solana, no account needed
+- [x402 USDC](https://budget.rugslayer.com/mcp): Pay per call on Solana, no account needed. Each agent_id belongs to the wallet that registered it; only calls paid from that wallet can read or change it.
 
 ## Pricing
+- register_agent: $0.001 USDC per call
 - check_spend: $0.001 USDC per call
 - report_spend: $0.001 USDC per call
 - get_spending_report: $0.005 USDC per call
@@ -140,8 +141,9 @@ const MCP_CARD = {
   },
   pricing: {
     model: "paid",
-    free_tools: ["list_tools", "health", "register_agent"],
+    free_tools: ["list_tools", "health"],
     paid_tools: {
+      register_agent: "$0.001",
       check_spend: "$0.001",
       report_spend: "$0.001",
       get_spending_report: "$0.005",
@@ -166,13 +168,13 @@ const MCP_CARD = {
     },
     {
       name: "register_agent",
-      description: "Register an agent with daily/weekly budget limits and optional per-category limits.",
-      price: "FREE",
+      description: "Register an agent with daily/weekly budget limits and optional per-category limits. The agent_id belongs to the paying wallet.",
+      price: "$0.001 USDC",
       input_schema: {
         type: "object",
         required: ["agent_id", "daily_limit_usd", "weekly_limit_usd"],
         properties: {
-          agent_id: { type: "string", description: "Unique agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           daily_limit_usd: { type: "number", description: "Maximum daily spending in USD" },
           weekly_limit_usd: { type: "number", description: "Maximum weekly spending in USD" },
           category_limits: { type: "object", description: "Per-category weekly spending limits" },
@@ -181,13 +183,13 @@ const MCP_CARD = {
     },
     {
       name: "check_spend",
-      description: "Pre-spend approval check. Verifies budget, returns ROI estimate and cheaper alternatives.",
+      description: "Pre-spend approval check. Verifies budget, returns an ROI estimate from your own history with the service, and cheaper alternatives you have used.",
       price: "$0.001 USDC",
       input_schema: {
         type: "object",
         required: ["agent_id", "service_id", "amount_usd", "category"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           service_id: { type: "string", description: "Service to pay for" },
           amount_usd: { type: "number", description: "Amount in USD" },
           category: { type: "string", description: "Spending category: security, trading, social, content, data, infrastructure, other" },
@@ -202,7 +204,7 @@ const MCP_CARD = {
         type: "object",
         required: ["agent_id", "service_id", "amount_usd", "category"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           service_id: { type: "string", description: "Service that was used" },
           amount_usd: { type: "number", description: "Amount spent in USD" },
           category: { type: "string", description: "Spending category" },
@@ -219,7 +221,7 @@ const MCP_CARD = {
         type: "object",
         required: ["agent_id", "period"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           period: { type: "string", description: "Report period: day, week, or month" },
         },
       },

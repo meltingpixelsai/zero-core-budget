@@ -12,7 +12,7 @@ const SERVER = {
   tools: [
     { name: "list_tools", desc: "List all tools with pricing", price: "FREE" },
     { name: "health", desc: "Server status and payment config", price: "FREE" },
-    { name: "register_agent", desc: "Register agent with budget limits", price: "FREE" },
+    { name: "register_agent", desc: "Register agent with budget limits (owned by your paying wallet)", price: "$0.001" },
     { name: "check_spend", desc: "Pre-spend budget approval check", price: "$0.001" },
     { name: "report_spend", desc: "Record a spend with outcome", price: "$0.001" },
     { name: "get_spending_report", desc: "Spending analytics with ROI", price: "$0.005" },

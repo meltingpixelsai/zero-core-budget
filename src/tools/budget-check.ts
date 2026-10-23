@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase-client.js";
 
 interface CheckSpendInput {
@@ -17,21 +18,25 @@ interface CheckSpendResult {
   cheaper_alternative: string | null;
 }
 
-/** Check if a spend is within budget. Pure math, no LLM. */
-export async function checkSpend(input: CheckSpendInput): Promise<CheckSpendResult> {
-  const sb = getSupabase();
+/** Check if a spend is within budget. Pure math, no LLM. Reads only `ownerWallet`'s agent. */
+export async function checkSpend(
+  input: CheckSpendInput,
+  ownerWallet: string,
+  sb: SupabaseClient = getSupabase()
+): Promise<CheckSpendResult> {
 
   // Get agent budget
   const { data: budget, error: budgetErr } = await sb
     .from("agent_budgets")
     .select("daily_limit_usd, weekly_limit_usd, category_limits")
+    .eq("owner_wallet", ownerWallet)
     .eq("agent_id", input.agent_id)
     .single();
 
   if (budgetErr || !budget) {
     return {
       approved: false,
-      reason: "Agent not registered. Call register_agent first.",
+      reason: "Agent not registered for this wallet. Call register_agent first, paying from the same wallet.",
       remaining_daily: 0,
       remaining_weekly: 0,
       remaining_category: null,
@@ -52,16 +57,19 @@ export async function checkSpend(input: CheckSpendInput): Promise<CheckSpendResu
     sb
       .from("spending_history")
       .select("amount_usd")
+      .eq("owner_wallet", ownerWallet)
       .eq("agent_id", input.agent_id)
       .gte("created_at", todayStart.toISOString()),
     sb
       .from("spending_history")
       .select("amount_usd")
+      .eq("owner_wallet", ownerWallet)
       .eq("agent_id", input.agent_id)
       .gte("created_at", weekStart.toISOString()),
     sb
       .from("spending_history")
       .select("amount_usd")
+      .eq("owner_wallet", ownerWallet)
       .eq("agent_id", input.agent_id)
       .eq("category", input.category)
       .gte("created_at", weekStart.toISOString()),
@@ -93,11 +101,13 @@ export async function checkSpend(input: CheckSpendInput): Promise<CheckSpendResu
 
   const approved = reasons.length === 0;
 
-  // Calculate ROI from historical success rates for this service
+  // ROI from this wallet's own history with the service. Pooling every wallet's
+  // rows let anyone poison the estimate with cheap failing reports.
   let roiEstimate: number | null = null;
   const { data: serviceHistory } = await sb
     .from("spending_history")
     .select("outcome_success, amount_usd")
+    .eq("owner_wallet", ownerWallet)
     .eq("service_id", input.service_id)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -112,6 +122,7 @@ export async function checkSpend(input: CheckSpendInput): Promise<CheckSpendResu
   const { data: alternatives } = await sb
     .from("spending_history")
     .select("service_id, amount_usd, outcome_success")
+    .eq("owner_wallet", ownerWallet)
     .eq("agent_id", input.agent_id)
     .eq("category", input.category)
     .order("created_at", { ascending: false })

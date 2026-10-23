@@ -10,7 +10,7 @@ import { registerAgent } from "./tools/registration.js";
 import { checkSpend } from "./tools/budget-check.js";
 import { reportSpend } from "./tools/spending.js";
 import { getSpendingReport } from "./tools/analytics.js";
-import { createSettleFirstPaidTools, type SettleFirstConfig } from "./lib/x402-settle-first.js";
+import { createSettleFirstPaidTools, type SettleFirstConfig, type X402Settlement } from "./lib/x402-settle-first.js";
 
 // ── Shared tool callback helpers ─────────────────────────────
 
@@ -25,6 +25,21 @@ function toolError(err: unknown) {
   };
 }
 
+/**
+ * The wallet whose payment settled for this call. Every agent_id belongs to the
+ * wallet that registered it, so this wallet is the only one whose agents a call
+ * can read or change.
+ */
+function payingWallet(extra: unknown): string | null {
+  const payer = (extra as { x402Settlement?: X402Settlement } | undefined)?.x402Settlement?.payer;
+  return typeof payer === "string" && payer.length > 0 ? payer : null;
+}
+
+const NO_PAYER = "The payment settled without naming the paying wallet, so the agent cannot be identified";
+
+const AGENT_ID_DESCRIPTION =
+  "Your agent's name. It belongs to the wallet you pay from: only calls paid from that wallet can read or change it";
+
 // ── Free tool data ───────────────────────────────────────────
 
 function listTools() {
@@ -35,7 +50,7 @@ function listTools() {
     tools: [
       { name: "list_tools", description: "List all tools with pricing", price: "FREE" },
       { name: "health", description: "Server status and payment config", price: "FREE" },
-      { name: "register_agent", description: "Register agent with budget limits", price: "FREE" },
+      { name: "register_agent", description: "Register agent with budget limits (owned by the paying wallet)", price: "$0.001" },
       { name: "check_spend", description: "Pre-spend budget approval check", price: "$0.001" },
       { name: "report_spend", description: "Record a spend with outcome", price: "$0.001" },
       { name: "get_spending_report", description: "Spending analytics with ROI", price: "$0.005" },
@@ -80,29 +95,6 @@ function registerFreeTools(server: any): void {
     {},
     async () => toolResult(health())
   );
-
-  server.tool(
-    "register_agent",
-    "Register an agent with daily and weekly budget limits. Free tool - call this before using check_spend or report_spend. Upserts if agent already exists.",
-    {
-      agent_id: z.string().describe("Unique agent identifier (e.g. your wallet address or agent name)"),
-      daily_limit_usd: z.number().min(0.001).max(10000).describe("Maximum daily spending in USD"),
-      weekly_limit_usd: z.number().min(0.001).max(100000).describe("Maximum weekly spending in USD"),
-      category_limits: z.record(z.number()).optional().describe("Optional per-category weekly limits (e.g. {security: 1.0, content: 2.0})"),
-    },
-    async ({ agent_id, daily_limit_usd, weekly_limit_usd, category_limits }: {
-      agent_id: string;
-      daily_limit_usd: number;
-      weekly_limit_usd: number;
-      category_limits?: Record<string, number>;
-    }) => {
-      try {
-        return toolResult(await registerAgent({ agent_id, daily_limit_usd, weekly_limit_usd, category_limits }));
-      } catch (err) {
-        return toolError(err);
-      }
-    }
-  );
 }
 
 // ── x402 Paid Handler ────────────────────────────────────────
@@ -130,11 +122,38 @@ const paidHandler = createMcpPaidHandler(
     const paidTool = settleFirst(server);
 
     paidTool(
-      "check_spend",
-      "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from historical data, and suggests cheaper alternatives. Call this BEFORE paying for any service.",
+      "register_agent",
+      "Register an agent with daily and weekly budget limits, or update them. The agent_id belongs to the wallet that pays for this call: call check_spend, report_spend and get_spending_report from the same wallet.",
       "$0.001",
       {
-        agent_id: z.string().describe("Your agent identifier (must be registered first)"),
+        agent_id: z.string().describe(AGENT_ID_DESCRIPTION),
+        daily_limit_usd: z.number().min(0.001).max(10000).describe("Maximum daily spending in USD"),
+        weekly_limit_usd: z.number().min(0.001).max(100000).describe("Maximum weekly spending in USD"),
+        category_limits: z.record(z.number()).optional().describe("Optional per-category weekly limits (e.g. {security: 1.0, content: 2.0})"),
+      },
+      {},
+      async ({ agent_id, daily_limit_usd, weekly_limit_usd, category_limits }: {
+        agent_id: string;
+        daily_limit_usd: number;
+        weekly_limit_usd: number;
+        category_limits?: Record<string, number>;
+      }, extra: unknown) => {
+        const owner = payingWallet(extra);
+        if (!owner) return toolError(NO_PAYER);
+        try {
+          return toolResult(await registerAgent({ agent_id, daily_limit_usd, weekly_limit_usd, category_limits }, owner));
+        } catch (err) {
+          return toolError(err);
+        }
+      }
+    );
+
+    paidTool(
+      "check_spend",
+      "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from your own past spends with this service, and suggests cheaper alternatives you have used. Call this BEFORE paying for any service.",
+      "$0.001",
+      {
+        agent_id: z.string().describe(AGENT_ID_DESCRIPTION + " (register it first)"),
         service_id: z.string().describe("Service you want to pay for (e.g. 'harvey-tools/scrape_url')"),
         amount_usd: z.number().min(0).describe("Amount you're about to spend in USD"),
         category: z.enum(["security", "trading", "social", "content", "data", "infrastructure", "other"]).describe("Spending category"),
@@ -145,9 +164,11 @@ const paidHandler = createMcpPaidHandler(
         service_id: string;
         amount_usd: number;
         category: string;
-      }) => {
+      }, extra: unknown) => {
+        const owner = payingWallet(extra);
+        if (!owner) return toolError(NO_PAYER);
         try {
-          return toolResult(await checkSpend({ agent_id, service_id, amount_usd, category }));
+          return toolResult(await checkSpend({ agent_id, service_id, amount_usd, category }, owner));
         } catch (err) {
           return toolError(err);
         }
@@ -159,7 +180,7 @@ const paidHandler = createMcpPaidHandler(
       "Record a completed spend with optional outcome tracking. Call this AFTER paying for a service to track spending and build ROI history.",
       "$0.001",
       {
-        agent_id: z.string().describe("Your agent identifier"),
+        agent_id: z.string().describe(AGENT_ID_DESCRIPTION),
         service_id: z.string().describe("Service that was used"),
         amount_usd: z.number().min(0).describe("Amount spent in USD"),
         category: z.enum(["security", "trading", "social", "content", "data", "infrastructure", "other"]).describe("Spending category"),
@@ -174,9 +195,11 @@ const paidHandler = createMcpPaidHandler(
         category: string;
         outcome_success?: boolean;
         value_received?: string;
-      }) => {
+      }, extra: unknown) => {
+        const owner = payingWallet(extra);
+        if (!owner) return toolError(NO_PAYER);
         try {
-          return toolResult(await reportSpend({ agent_id, service_id, amount_usd, category, outcome_success, value_received }));
+          return toolResult(await reportSpend({ agent_id, service_id, amount_usd, category, outcome_success, value_received }, owner));
         } catch (err) {
           return toolError(err);
         }
@@ -188,13 +211,15 @@ const paidHandler = createMcpPaidHandler(
       "Detailed spending analytics report. Returns total spent, category breakdown, top services with ROI, and optimization recommendations. Use to understand spending patterns and find inefficiencies.",
       "$0.005",
       {
-        agent_id: z.string().describe("Your agent identifier"),
+        agent_id: z.string().describe(AGENT_ID_DESCRIPTION),
         period: z.enum(["day", "week", "month"]).describe("Report period"),
       },
       {},
-      async ({ agent_id, period }: { agent_id: string; period: "day" | "week" | "month" }) => {
+      async ({ agent_id, period }: { agent_id: string; period: "day" | "week" | "month" }, extra: unknown) => {
+        const owner = payingWallet(extra);
+        if (!owner) return toolError(NO_PAYER);
         try {
-          return toolResult(await getSpendingReport({ agent_id, period }));
+          return toolResult(await getSpendingReport({ agent_id, period }, owner));
         } catch (err) {
           return toolError(err);
         }
