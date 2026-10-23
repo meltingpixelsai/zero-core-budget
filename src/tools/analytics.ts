@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase-client.js";
 
 interface SpendingReportInput {
@@ -31,9 +32,12 @@ interface SpendingReport {
   recommendations: string[];
 }
 
-/** Generate a spending analytics report */
-export async function getSpendingReport(input: SpendingReportInput): Promise<SpendingReport> {
-  const sb = getSupabase();
+/** Generate a spending analytics report for `ownerWallet`'s agent */
+export async function getSpendingReport(
+  input: SpendingReportInput,
+  ownerWallet: string,
+  sb: SupabaseClient = getSupabase()
+): Promise<SpendingReport> {
 
   // Calculate period start
   const now = new Date();
@@ -54,6 +58,7 @@ export async function getSpendingReport(input: SpendingReportInput): Promise<Spe
   const { data: spending, error } = await sb
     .from("spending_history")
     .select("service_id, amount_usd, category, outcome_success, value_received, created_at")
+    .eq("owner_wallet", ownerWallet)
     .eq("agent_id", input.agent_id)
     .gte("created_at", since.toISOString())
     .order("created_at", { ascending: false });
@@ -129,6 +134,7 @@ export async function getSpendingReport(input: SpendingReportInput): Promise<Spe
   const { data: budget } = await sb
     .from("agent_budgets")
     .select("daily_limit_usd, weekly_limit_usd, category_limits")
+    .eq("owner_wallet", ownerWallet)
     .eq("agent_id", input.agent_id)
     .single();
 
