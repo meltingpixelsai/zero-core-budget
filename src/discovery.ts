@@ -183,13 +183,13 @@ const MCP_CARD = {
     },
     {
       name: "check_spend",
-      description: "Pre-spend approval check. Verifies budget, returns ROI estimate and cheaper alternatives.",
+      description: "Pre-spend approval check. Verifies budget, returns an ROI estimate from your own history with the service, and cheaper alternatives you have used.",
       price: "$0.001 USDC",
       input_schema: {
         type: "object",
         required: ["agent_id", "service_id", "amount_usd", "category"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           service_id: { type: "string", description: "Service to pay for" },
           amount_usd: { type: "number", description: "Amount in USD" },
           category: { type: "string", description: "Spending category: security, trading, social, content, data, infrastructure, other" },
@@ -204,7 +204,7 @@ const MCP_CARD = {
         type: "object",
         required: ["agent_id", "service_id", "amount_usd", "category"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           service_id: { type: "string", description: "Service that was used" },
           amount_usd: { type: "number", description: "Amount spent in USD" },
           category: { type: "string", description: "Spending category" },
@@ -221,7 +221,7 @@ const MCP_CARD = {
         type: "object",
         required: ["agent_id", "period"],
         properties: {
-          agent_id: { type: "string", description: "Agent identifier" },
+          agent_id: { type: "string", description: "Agent name, owned by the paying wallet" },
           period: { type: "string", description: "Report period: day, week, or month" },
         },
       },

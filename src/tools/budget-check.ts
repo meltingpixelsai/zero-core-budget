@@ -101,11 +101,13 @@ export async function checkSpend(
 
   const approved = reasons.length === 0;
 
-  // Calculate ROI from historical success rates for this service
+  // ROI from this wallet's own history with the service. Pooling every wallet's
+  // rows let anyone poison the estimate with cheap failing reports.
   let roiEstimate: number | null = null;
   const { data: serviceHistory } = await sb
     .from("spending_history")
     .select("outcome_success, amount_usd")
+    .eq("owner_wallet", ownerWallet)
     .eq("service_id", input.service_id)
     .order("created_at", { ascending: false })
     .limit(50);

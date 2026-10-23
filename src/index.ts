@@ -150,7 +150,7 @@ const paidHandler = createMcpPaidHandler(
 
     paidTool(
       "check_spend",
-      "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from historical data, and suggests cheaper alternatives. Call this BEFORE paying for any service.",
+      "Pre-spend budget approval check. Verifies daily/weekly/category limits, estimates ROI from your own past spends with this service, and suggests cheaper alternatives you have used. Call this BEFORE paying for any service.",
       "$0.001",
       {
         agent_id: z.string().describe(AGENT_ID_DESCRIPTION + " (register it first)"),
